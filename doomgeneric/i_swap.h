@@ -23,14 +23,12 @@
 #ifdef FEATURE_SOUND
 
 
-#ifdef __DJGPP__
-
+#if 1
 
 #define SHORT(x)  ((signed short) (x))
 #define LONG(x)   ((signed int) (x))
 
 #define SYS_LITTLE_ENDIAN
-
 
 #else  // __DJGPP__
 

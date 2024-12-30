@@ -182,7 +182,10 @@ wad_file_t *W_AddFile (char *filename)
     else 
     {
     	// WAD file
-        W_Read(wad_file, 0, &header, sizeof(header));
+        size_t read_size = W_Read(wad_file, 0, &header, sizeof(header));
+        if (read_size != sizeof(header)) {
+            I_Error("Failed to read WAD header from %s\n", filename);
+        }
 
 		if (strncmp(header.identification,"IWAD",4))
 		{
@@ -190,7 +193,7 @@ wad_file_t *W_AddFile (char *filename)
 			if (strncmp(header.identification,"PWAD",4))
 			{
 			I_Error ("Wad file %s doesn't have IWAD "
-				 "or PWAD id\n", filename);
+				 "or PWAD id (as %c%c%c%c)\n", filename, header.identification[0], header.identification[1], header.identification[2], header.identification[3]);
 			}
 
 			// ???modifiedgame = true;

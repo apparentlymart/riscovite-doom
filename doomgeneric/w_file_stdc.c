@@ -35,6 +35,7 @@ static wad_file_t *W_StdC_OpenFile(char *path)
     stdc_wad_file_t *result;
     FILE *fstream;
 
+    printf("fopen %s\n", path);
     fstream = fopen(path, "rb");
 
     if (fstream == NULL)
@@ -49,6 +50,8 @@ static wad_file_t *W_StdC_OpenFile(char *path)
     result->wad.mapped = NULL;
     result->wad.length = M_FileLength(fstream);
     result->fstream = fstream;
+    
+    printf("opened %s as file number %d\n", path, fileno(fstream));
 
     return &result->wad;
 }
@@ -76,11 +79,17 @@ size_t W_StdC_Read(wad_file_t *wad, unsigned int offset,
 
     // Jump to the specified position in the file.
 
-    fseek(stdc_wad->fstream, offset, SEEK_SET);
+    if (fseek(stdc_wad->fstream, offset, SEEK_SET) < 0) {
+        perror("failed to seek in WAD file");
+        return 0;
+    }
 
     // Read into the buffer.
 
     result = fread(buffer, 1, buffer_len, stdc_wad->fstream);
+    if (result != buffer_len) {
+        perror("failed to read from WAD file");
+    }
 
     return result;
 }

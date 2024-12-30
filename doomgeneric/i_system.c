@@ -403,73 +403,7 @@ void I_Error (char *error, ...)
         entry = entry->next;
     }
 
-    exit_gui_popup = !M_ParmExists("-nogui");
-
-    // Pop up a GUI dialog box to show the error message, if the
-    // game was not run from the console (and the user will
-    // therefore be unable to otherwise see the message).
-    if (exit_gui_popup && !I_ConsoleStdout())
-#ifdef _WIN32
-    {
-        wchar_t wmsgbuf[512];
-
-        MultiByteToWideChar(CP_ACP, 0,
-                            msgbuf, strlen(msgbuf) + 1,
-                            wmsgbuf, sizeof(wmsgbuf));
-
-        MessageBoxW(NULL, wmsgbuf, L"", MB_OK);
-    }
-#elif defined(__MACOSX__)
-    {
-        CFStringRef message;
-	int i;
-
-	// The CoreFoundation message box wraps text lines, so replace
-	// newline characters with spaces so that multiline messages
-	// are continuous.
-
-	for (i = 0; msgbuf[i] != '\0'; ++i)
-        {
-            if (msgbuf[i] == '\n')
-            {
-                msgbuf[i] = ' ';
-            }
-        }
-
-        message = CFStringCreateWithCString(NULL, msgbuf,
-                                            kCFStringEncodingUTF8);
-
-        CFUserNotificationDisplayNotice(0,
-                                        kCFUserNotificationCautionAlertLevel,
-                                        NULL,
-                                        NULL,
-                                        NULL,
-                                        CFSTR(PACKAGE_STRING),
-                                        message,
-                                        NULL);
-    }
-#elif defined(__DJGPP__)
-    {
-        printf("%s\n", msgbuf);
-        exit(-1);
-    }
-
-#else
-    {
-        ZenityErrorBox(msgbuf);
-    }
-#endif
-
-    // abort();
-#if ORIGCODE
-    SDL_Quit();
-
-    exit(-1);
-#else
-    while (true)
-    {
-    }
-#endif
+    exit(1);
 }
 
 //
