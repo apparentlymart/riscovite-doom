@@ -1840,6 +1840,7 @@ void D_DoomMain (void)
 			D_StartTitle ();                // start up intro loop
     }
 
+    DEH_printf("D_DoomLoop\n");
     D_DoomLoop ();
 }
 
