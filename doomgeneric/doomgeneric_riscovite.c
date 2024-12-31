@@ -3,6 +3,7 @@
 #include "doomkeys.h"
 #include "m_argv.h"
 #include "doomgeneric.h"
+#include "i_video.h"
 
 #include <stdio.h>
 #include <unistd.h>
@@ -199,8 +200,25 @@ void DG_DrawFrame()
         src += src_stride;
         dst += dst_stride;
     }
-    present(bgai_hnd, PRESENT_COLORMAP|PRESENT_PIXBUF|CLEAR_FRAME_INTERRUPT, NULL, 0);
-    CHECK_ERROR(r_v, "failed to present framebuffer");
+    if (palette_changed) {
+      uint8_t colormap[3 * 256];
+      uint8_t *color_dst = &colormap[0];
+      struct color *color_src = &colors[0];
+      for (int i = 0; i < (sizeof(colors) / sizeof(colors[0])); i++) {
+        color_dst[0] = color_src->b;
+        color_dst[1] = color_src->g;
+        color_dst[2] = color_src->r;
+        color_dst += 3;
+        color_src += 1;
+      }
+      r_v = write_colormap(bgai_hnd, &colormap[0], 256, 0);
+      CHECK_ERROR(r_v, "failed to update colormap");
+      r_v = present(bgai_hnd, PRESENT_COLORMAP|PRESENT_PIXBUF|CLEAR_FRAME_INTERRUPT, NULL, 0);
+      CHECK_ERROR(r_v, "failed to present framebuffer");
+    } else {
+      r_v = present(bgai_hnd, PRESENT_PIXBUF|CLEAR_FRAME_INTERRUPT, NULL, 0);
+      CHECK_ERROR(r_v, "failed to present framebuffer");
+    }
   /*
   SDL_UpdateTexture(texture, NULL, DG_ScreenBuffer, DOOMGENERIC_RESX*sizeof(uint32_t));
 

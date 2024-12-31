@@ -9,6 +9,7 @@
 // BGAI graphics interface
 #define SYS_OPEN_FRAMEBUFFER(slot) (~((slot) | (0x00000f01 << 4)))
 #define SYS_PRESENT(slot) (~((slot) | (0x00000001 << 4)))
+#define SYS_WRITE_COLORMAP(slot) (~((slot) | (0x00000002 << 4)))
 #define SYS_REQ_FRAME_INTERRUPT(slot) (~((slot) | (0x00000f05 << 4)))
 #define SYS_ENABLE_INTERRUPTS(slot) (~((slot) | (0x00000003 << 4)))
 #define PRESENT_PIXBUF (0b0001)
@@ -109,6 +110,23 @@ present(uint64_t hnd, uint64_t flags, uint64_t *rects, uint64_t rect_count) {
                       : [RET] "=r"(__ret), [ERR] "=r"(__err)
                       : "r0"(_hnd), "r1"(_flags), "r"(_rects),
                         "r"(_rect_count), [FUNCNUM] "n"(SYS_PRESENT(0))
+                      : "a7", "memory");
+  return ((struct riscovite_result_void){__ret, __err});
+}
+
+static inline struct riscovite_result_void
+write_colormap(uint64_t hnd, uint8_t *colors, uint64_t count, uint64_t offset) {
+  register uint64_t _hnd asm("a0") = hnd;
+  register uint64_t _colors asm("a1") = (uint64_t)colors;
+  register uint64_t _count asm("a2") = (uint64_t)count;
+  register uint64_t _offset asm("a3") = (uint64_t)offset;
+  register uint64_t __ret asm("a0");
+  register uint64_t __err asm("a1");
+  asm volatile inline("li a7, %[FUNCNUM]\n"
+                      "ecall\n"
+                      : [RET] "=r"(__ret), [ERR] "=r"(__err)
+                      : "r0"(_hnd), "r1"(_colors), "r"(_count),
+                        "r"(_offset), [FUNCNUM] "n"(SYS_WRITE_COLORMAP(0))
                       : "a7", "memory");
   return ((struct riscovite_result_void){__ret, __err});
 }
