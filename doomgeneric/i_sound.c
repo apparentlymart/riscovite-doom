@@ -18,10 +18,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#if defined(FEATURE_SOUND) && !defined(__DJGPP__)
-#include <SDL_mixer.h>
-#endif
-
 #include "config.h"
 #include "doomfeatures.h"
 #include "doomtype.h"
@@ -124,6 +120,8 @@ static void InitSfxModule(boolean use_sfx_prefix)
             }
         }
     }
+
+    printf("I_InitSound: no sound module available\n");
 }
 
 // Initialize music according to snd_musicdevice.
@@ -394,9 +392,6 @@ boolean I_MusicIsPlaying(void)
 
 void I_BindSoundVariables(void)
 {
-    extern int use_libsamplerate;
-    extern float libsamplerate_scale;
-
     M_BindVariable("snd_musicdevice",   &snd_musicdevice);
     M_BindVariable("snd_sfxdevice",     &snd_sfxdevice);
     M_BindVariable("snd_sbport",        &snd_sbport);
@@ -407,14 +402,5 @@ void I_BindSoundVariables(void)
     M_BindVariable("snd_musiccmd",      &snd_musiccmd);
     M_BindVariable("snd_samplerate",    &snd_samplerate);
     M_BindVariable("snd_cachesize",     &snd_cachesize);
-
-#ifdef FEATURE_SOUND
-    M_BindVariable("use_libsamplerate",   &use_libsamplerate);
-    M_BindVariable("libsamplerate_scale", &libsamplerate_scale);
-#endif
-
-    // Before SDL_mixer version 1.2.11, MIDI music caused the game
-    // to crash when it looped.  If this is an old SDL_mixer version,
-    // disable MIDI.
 }
 
