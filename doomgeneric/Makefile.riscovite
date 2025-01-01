@@ -33,7 +33,7 @@ CFLAGS+=-DCMAP256
 # CFLAGS+=-g
 # LDFLAGS+=-g
 
-LIBS+=-lm
+#LIBS+=-lm
 
 # subdirectory for objects
 OBJDIR:=riscovite

@@ -123,16 +123,10 @@ write_samples(uint64_t hnd, uint16_t *samples, uint64_t count) {
     return ((struct riscovite_result_void){__ret, __err});
 }
 
-#include <math.h>
-
 // This function periodically interrupts the rest of the program to feed
 // the RISCovite sound output buffer.
 void riscovite_sound_interrupt_handler(uint64_t user_data, uint64_t buffer_space) {
-    // TEMP: For now we just produce a sine wave to establish that we're
-    // able to get interrupted here at all.
-    const double SAMPLE_RATE = 44100.0;
     static int16_t SAMPLE_BUF[4096] = {0};
-    static double SAMPLE_CLOCK = 0.0F;
 
     if (buffer_space > (sizeof(SAMPLE_BUF) / sizeof(SAMPLE_BUF[0]))) {
         buffer_space = sizeof(SAMPLE_BUF) / sizeof(SAMPLE_BUF[0]);
@@ -141,16 +135,9 @@ void riscovite_sound_interrupt_handler(uint64_t user_data, uint64_t buffer_space
 
     int16_t(*samples)[2] = (int16_t(*)[2])SAMPLE_BUF;
     for (int i = 0; i < frame_count; i++) {
-        SAMPLE_CLOCK = SAMPLE_CLOCK + 1.0;
-        while (SAMPLE_CLOCK > SAMPLE_RATE) {
-            SAMPLE_CLOCK -= SAMPLE_RATE;
-        }
-        double next_sample = sin((SAMPLE_CLOCK * 440.0 * 2.0 * 3.14159265358979323846 / SAMPLE_RATE));
-        double sample_raw = (int16_t)(next_sample * 32767.0);
-
-        (*samples)[0] = sample_raw;  // Left channel
-        (*samples)[1] = -sample_raw; // Right channel
-
+        // TEMP: Just silence, for now.
+        (*samples)[0] = 0; // Left channel
+        (*samples)[1] = 0; // Right channel
         samples++;
     }
     write_samples(riscovite_sound_handle, &SAMPLE_BUF[0], sizeof(SAMPLE_BUF) / sizeof(SAMPLE_BUF[0]));
