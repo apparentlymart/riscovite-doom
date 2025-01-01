@@ -11,10 +11,14 @@
 #define SYS_PRESENT(slot) (~((slot) | (0x00000001 << 4)))
 #define SYS_WRITE_COLORMAP(slot) (~((slot) | (0x00000002 << 4)))
 #define SYS_REQ_FRAME_INTERRUPT(slot) (~((slot) | (0x00000f05 << 4)))
-#define SYS_ENABLE_INTERRUPTS(slot) (~((slot) | (0x00000003 << 4)))
+#define SYS_ENABLE_GRAPHICS_INTERRUPTS(slot) (~((slot) | (0x00000003 << 4)))
 #define PRESENT_PIXBUF (0b0001)
 #define PRESENT_COLORMAP (0b0010)
 #define CLEAR_FRAME_INTERRUPT (0b1000)
+
+// BGAI audio interface
+#define SYS_REQ_AUDIO_BUFFER_INTERRUPT(slot) (~((slot) | (0x00000f01 << 4)))
+#define SYS_ENABLE_AUDIO_INTERRUPTS(slot) (~((slot) | (0x00000002 << 4)))
 
 // BGAI input interface
 #define SYS_GET_REPORT(slot) (~((slot) | (0x00000001 << 4)))
@@ -152,8 +156,7 @@ request_frame_interrupt(uint64_t hnd, void *handler_addr, uint64_t flags,
   return ((struct riscovite_result_void){__ret, __err});
 }
 
-static inline struct riscovite_result_void enable_interrupts(uint64_t hnd,
-                                                             uint16_t mask) {
+static inline struct riscovite_result_void enable_graphics_interrupts(uint64_t hnd, uint16_t mask) {
   register uint64_t _hnd asm("a0") = hnd;
   register uint64_t _mask asm("a1") = (uint64_t)mask;
   register uint64_t __ret asm("a0");
@@ -162,7 +165,7 @@ static inline struct riscovite_result_void enable_interrupts(uint64_t hnd,
                       "ecall\n"
                       : [RET] "=r"(__ret), [ERR] "=r"(__err)
                       : "r0"(_hnd),
-                        "r1"(_mask), [FUNCNUM] "n"(SYS_ENABLE_INTERRUPTS(0))
+                        "r1"(_mask), [FUNCNUM] "n"(SYS_ENABLE_GRAPHICS_INTERRUPTS(0))
                       : "a7", "memory");
   return ((struct riscovite_result_void){__ret, __err});
 }
@@ -216,6 +219,39 @@ get_input_report(uint64_t hnd, uint64_t desc_id, void *into, uint64_t flags) {
                         "r"(_flags), [FUNCNUM] "n"(SYS_GET_REPORT(2))
                       : "a7", "memory");
   return ((struct riscovite_result_uint64){__ret, __err});
+}
+
+static inline struct riscovite_result_void
+request_sound_interrupt(uint64_t hnd, uint16_t threshold, void *handler_addr, uint64_t flags, uint64_t user_data) {
+  register uint64_t _hnd asm("a0") = hnd;
+  register uint64_t _threshold asm("a1") = (uint64_t)threshold;
+  register uint64_t _handler_addr asm("a2") = (uint64_t)handler_addr;
+  register uint64_t _flags asm("a3") = (uint64_t)flags;
+  register uint64_t _user_data asm("a4") = (uint64_t)user_data;
+  register uint64_t __ret asm("a0");
+  register uint64_t __err asm("a1");
+  asm volatile inline(
+      "li a7, %[FUNCNUM]\n"
+      "ecall\n"
+      : [RET] "=r"(__ret), [ERR] "=r"(__err)
+      : "r0"(_hnd), "r1"(_threshold), "r"(_handler_addr), "r"(_flags),
+        "r"(_user_data), [FUNCNUM] "n"(SYS_REQ_AUDIO_BUFFER_INTERRUPT(1))
+      : "a7", "memory");
+  return ((struct riscovite_result_void){__ret, __err});
+}
+
+static inline struct riscovite_result_void enable_audio_interrupts(uint64_t hnd, uint16_t mask) {
+  register uint64_t _hnd asm("a0") = hnd;
+  register uint64_t _mask asm("a1") = (uint64_t)mask;
+  register uint64_t __ret asm("a0");
+  register uint64_t __err asm("a1");
+  asm volatile inline("li a7, %[FUNCNUM]\n"
+                      "ecall\n"
+                      : [RET] "=r"(__ret), [ERR] "=r"(__err)
+                      : "r0"(_hnd),
+                        "r1"(_mask), [FUNCNUM] "n"(SYS_ENABLE_AUDIO_INTERRUPTS(1))
+                      : "a7", "memory");
+  return ((struct riscovite_result_void){__ret, __err});
 }
 
 struct riscovite_button_event {

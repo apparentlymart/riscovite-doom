@@ -4,6 +4,7 @@
 #include "m_argv.h"
 #include "doomgeneric.h"
 #include "i_video.h"
+#include "i_riscovitesound.h"
 
 #include <stdio.h>
 #include <unistd.h>
@@ -180,6 +181,7 @@ void DG_Init(){
     printf("  pixel_pitch: %d\n", (int)fb_desc.pixel_pitch);
 
     bgai_hnd = hnd;
+    riscovite_sound_handle = hnd; // used by i_riscovitesound.c and i_riscovitemusic.c
 
     r_v = present(bgai_hnd, PRESENT_COLORMAP|PRESENT_PIXBUF|CLEAR_FRAME_INTERRUPT, NULL, 0);
     CHECK_ERROR(r_v, "failed to present framebuffer");
@@ -190,6 +192,11 @@ void DG_Init(){
     CHECK_ERROR(r_u64, "failed to set button input buffer size");
     r_u64 = set_input_report_descriptor(bgai_hnd, 0, &input_report_desc[0], sizeof(input_report_desc) / sizeof(input_report_desc[0]));
     CHECK_ERROR(r_u64, "failed to set input report descriptor");
+
+    r_v = request_sound_interrupt(bgai_hnd, 2048, riscovite_sound_interrupt_handler, 10, 0);
+    CHECK_ERROR(r_v, "failed to request sound buffer interrupt");
+    r_v = enable_audio_interrupts(bgai_hnd, 0b1);
+    CHECK_ERROR(r_v, "failed to enable audio interrupts");
 }
 
 void DG_DrawFrame()

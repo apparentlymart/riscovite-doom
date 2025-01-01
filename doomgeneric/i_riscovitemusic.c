@@ -18,10 +18,18 @@
 #include "config.h"
 #include "doomtype.h"
 #include "i_sound.h"
+#include "i_riscovitesound.h"
 
 #include <stdio.h>
 
 static boolean I_Riscovite_InitMusic(void) {
+    // The early init code should've set riscovite_sound_handle to something
+    // nonzero after acquiring the BGAI handle. If not then we'll just
+    // disable music completely.
+    if (riscovite_sound_handle == 0) {
+        printf("I_Riscovite_InitMusic: sound was not initialized, so disabling music module\n");
+    }
+
     printf("I_Riscovite_InitMusic: starting RISCovite music output\n");
     return true;
 }
