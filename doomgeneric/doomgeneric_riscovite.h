@@ -31,8 +31,10 @@
 #define SYS_SET_TEXT_INPUT_BUFFER(slot) (~((slot) | (0x00000f02 << 4)))
 #define SYS_SET_BUTTON_INPUT_BUFFER(slot) (~((slot) | (0x00000f03 << 4)))
 #define SYS_SET_ACCESS_TOOL_ACTION_BUFFER(slot) (~((slot) | (0x00000f04 << 4)))
+#define INPUT_REPORT_CONSUME (0b1)
 
 // BGAI input report field ids
+#define INPUT_REPORT_BUTTON_INPUT_BUF 0x01
 #define INPUT_REPORT_ABS_POINTER_POS 0x05
 #define INPUT_REPORT_POINTER_BUTTONS 0x06
 #define INPUT_REPORT_TIMESTAMP 0x07
@@ -185,6 +187,21 @@ set_input_report_descriptor(uint64_t hnd, uint64_t desc_id,
 }
 
 static inline struct riscovite_result_uint64
+set_button_input_buffer(uint64_t hnd, uint8_t size) {
+  register uint64_t _hnd asm("a0") = hnd;
+  register uint64_t _size asm("a1") = (uint64_t)size;
+  register uint64_t __ret asm("a0");
+  register uint64_t __err asm("a1");
+  asm volatile inline(
+      "li a7, %[FUNCNUM]\n"
+      "ecall\n"
+      : [RET] "=r"(__ret), [ERR] "=r"(__err)
+      : "r0"(_hnd), "r1"(_size), [FUNCNUM] "n"(SYS_SET_BUTTON_INPUT_BUFFER(2))
+      : "a7", "memory");
+  return ((struct riscovite_result_uint64){__ret, __err});
+}
+
+static inline struct riscovite_result_uint64
 get_input_report(uint64_t hnd, uint64_t desc_id, void *into, uint64_t flags) {
   register uint64_t _hnd asm("a0") = hnd;
   register uint64_t _desc_id asm("a1") = (uint64_t)desc_id;
@@ -200,3 +217,13 @@ get_input_report(uint64_t hnd, uint64_t desc_id, void *into, uint64_t flags) {
                       : "a7", "memory");
   return ((struct riscovite_result_uint64){__ret, __err});
 }
+
+struct riscovite_button_event {
+  uint16_t button;
+  uint16_t flags;
+  uint16_t pointer_x;
+  uint16_t pointer_y;
+  uint8_t text_start;
+  uint8_t text_end;
+  uint8_t padding[2];
+};

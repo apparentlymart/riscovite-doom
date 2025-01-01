@@ -1,4 +1,4 @@
-//doomgeneric for cross-platform development library 'Simple DirectMedia Layer'
+//doomgeneric for RISCovite
 
 #include "doomkeys.h"
 #include "m_argv.h"
@@ -20,97 +20,104 @@ static struct framebuffer_desc fb_desc;
 static uint64_t bgai_hnd;
 static bool advance_frame = false;
 
+struct button_events_report {
+  uint32_t count;
+  struct riscovite_button_event events[32];
+};
+
+static const uint16_t input_report_desc[1] = {INPUT_REPORT_BUTTON_INPUT_BUF};
+static struct button_events_report button_events;
 static unsigned short s_KeyQueue[KEYQUEUE_SIZE];
 static unsigned int s_KeyQueueWriteIndex = 0;
 static unsigned int s_KeyQueueReadIndex = 0;
 
-static unsigned char convertToDoomKey(unsigned int key){
-  key = KEY_ENTER;
-  return key;
-  /*
-  switch (key)
-    {
-    case SDLK_RETURN:
-      key = KEY_ENTER;
-      break;
-    case SDLK_ESCAPE:
-      key = KEY_ESCAPE;
-      break;
-    case SDLK_LEFT:
-      key = KEY_LEFTARROW;
-      break;
-    case SDLK_RIGHT:
-      key = KEY_RIGHTARROW;
-      break;
-    case SDLK_UP:
-      key = KEY_UPARROW;
-      break;
-    case SDLK_DOWN:
-      key = KEY_DOWNARROW;
-      break;
-    case SDLK_LCTRL:
-    case SDLK_RCTRL:
-      key = KEY_FIRE;
-      break;
-    case SDLK_SPACE:
-      key = KEY_USE;
-      break;
-    case SDLK_LSHIFT:
-    case SDLK_RSHIFT:
-      key = KEY_RSHIFT;
-      break;
-    case SDLK_LALT:
-    case SDLK_RALT:
-      key = KEY_LALT;
-      break;
-    case SDLK_F2:
-      key = KEY_F2;
-      break;
-    case SDLK_F3:
-      key = KEY_F3;
-      break;
-    case SDLK_F4:
-      key = KEY_F4;
-      break;
-    case SDLK_F5:
-      key = KEY_F5;
-      break;
-    case SDLK_F6:
-      key = KEY_F6;
-      break;
-    case SDLK_F7:
-      key = KEY_F7;
-      break;
-    case SDLK_F8:
-      key = KEY_F8;
-      break;
-    case SDLK_F9:
-      key = KEY_F9;
-      break;
-    case SDLK_F10:
-      key = KEY_F10;
-      break;
-    case SDLK_F11:
-      key = KEY_F11;
-      break;
-    case SDLK_EQUALS:
-    case SDLK_PLUS:
-      key = KEY_EQUALS;
-      break;
-    case SDLK_MINUS:
-      key = KEY_MINUS;
-      break;
-    default:
-      key = tolower(key);
-      break;
-    }
+static unsigned char convertToDoomKey(uint16_t key){
+  if ((key >> 8) != 0x07) {
+    return 0; // not a keyboard button
+  }
+  key = key & 0xff;
 
-  return key;
-  */
+  if (key >= 0x04 && key <= 0x1d) {
+    // Letter keys all get translated to their lowercase ASCII equivalents
+    // assuming a QWERTY keyboard layout. Doom cares about the physical
+    // positions of the keys rather than what they are labelled.
+    return key - 0x04 + 'a';
+  }
+  if (key >= 0x1e && key <= 0x26) {
+    // Digits 1-9
+    return key - 0x1e + '1';
+  }
+
+  switch (key) {
+  case 0x28:
+      return KEY_ENTER;
+  case 0x29:
+      return KEY_ESCAPE;
+  case 0x50:
+      return KEY_LEFTARROW;
+  case 0x4f:
+      return KEY_RIGHTARROW;
+  case 0x52:
+      return KEY_UPARROW;
+  case 0x51:
+      return KEY_DOWNARROW;
+  case 0xe0:
+  case 0xe4:
+      return KEY_FIRE;
+  case 0x2c:
+      return KEY_USE;
+  case 0xe1:
+  case 0xe5:
+      return KEY_RSHIFT;
+  case 0xe2:
+  case 0xe6:
+      return KEY_LALT;
+  case 0x3a:
+      return KEY_F1;
+  case 0x3b:
+      return KEY_F2;
+  case 0x3c:
+      return KEY_F3;
+  case 0x3d:
+      return KEY_F4;
+  case 0x3e:
+      return KEY_F5;
+  case 0x3f:
+      return KEY_F6;
+  case 0x40:
+      return KEY_F7;
+  case 0x41:
+      return KEY_F8;
+  case 0x42:
+      return KEY_F9;
+  case 0x43:
+      return KEY_F10;
+  case 0x44:
+      return KEY_F11;
+  case 0x45:
+      return KEY_F12;
+  case 0x2e:
+      return KEY_EQUALS;
+  case 0x2d:
+      return KEY_MINUS;
+  case 0x27:
+      return '0';
+  case 0x2b:
+      return KEY_TAB;
+  case 0x2a:
+      return KEY_BACKSPACE;
+  case 0x48:
+      return KEY_PAUSE;
+  default:
+      return 0;
+  }
 }
 
 static void addKeyToQueue(int pressed, unsigned int keyCode){
   unsigned char key = convertToDoomKey(keyCode);
+  if (key == 0) {
+    return;
+  }
 
   unsigned short keyData = (pressed << 8) | key;
 
@@ -120,25 +127,17 @@ static void addKeyToQueue(int pressed, unsigned int keyCode){
 }
 
 static void handleKeyInput(){
-  /*
-  SDL_Event e;
-  while (SDL_PollEvent(&e)){
-    if (e.type == SDL_QUIT){
-      puts("Quit requested");
-      atexit(SDL_Quit);
-      exit(1);
+    struct riscovite_result_uint64 r_u64;
+    r_u64 = get_input_report(bgai_hnd, 0, &button_events, INPUT_REPORT_CONSUME);
+    CHECK_ERROR(r_u64, "failed to get input report");
+
+    int count = button_events.count;
+    struct riscovite_button_event *event = &button_events.events[0];
+    for (int count = button_events.count; count != 0; count--) {
+        int pressed = (event->flags & 0x100) != 0;
+        addKeyToQueue(pressed, event->button);
+        event++;
     }
-    if (e.type == SDL_KEYDOWN) {
-      //KeySym sym = XKeycodeToKeysym(s_Display, e.xkey.keycode, 0);
-      //printf("KeyPress:%d sym:%d\n", e.xkey.keycode, sym);
-      addKeyToQueue(1, e.key.keysym.sym);
-    } else if (e.type == SDL_KEYUP) {
-      //KeySym sym = XKeycodeToKeysym(s_Display, e.xkey.keycode, 0);
-      //printf("KeyRelease:%d sym:%d\n", e.xkey.keycode, sym);
-      addKeyToQueue(0, e.key.keysym.sym);
-    }
-  }
-  */
 }
 
 void DG_Init(){
@@ -184,6 +183,13 @@ void DG_Init(){
 
     r_v = present(bgai_hnd, PRESENT_COLORMAP|PRESENT_PIXBUF|CLEAR_FRAME_INTERRUPT, NULL, 0);
     CHECK_ERROR(r_v, "failed to present framebuffer");
+
+    // We also need an input report descriptor so we can read the contents of
+    // the button input buffer later.
+    r_u64 = set_button_input_buffer(bgai_hnd, sizeof(button_events.events) / sizeof(button_events.events[0]));
+    CHECK_ERROR(r_u64, "failed to set button input buffer size");
+    r_u64 = set_input_report_descriptor(bgai_hnd, 0, &input_report_desc[0], sizeof(input_report_desc) / sizeof(input_report_desc[0]));
+    CHECK_ERROR(r_u64, "failed to set input report descriptor");
 }
 
 void DG_DrawFrame()
@@ -219,15 +225,7 @@ void DG_DrawFrame()
       r_v = present(bgai_hnd, PRESENT_PIXBUF|CLEAR_FRAME_INTERRUPT, NULL, 0);
       CHECK_ERROR(r_v, "failed to present framebuffer");
     }
-  /*
-  SDL_UpdateTexture(texture, NULL, DG_ScreenBuffer, DOOMGENERIC_RESX*sizeof(uint32_t));
-
-  SDL_RenderClear(renderer);
-  SDL_RenderCopy(renderer, texture, NULL, NULL);
-  SDL_RenderPresent(renderer);
-
-  handleKeyInput();
-  */
+    handleKeyInput();
 }
 
 void DG_SleepMs(uint32_t ms)
@@ -248,23 +246,21 @@ uint32_t DG_GetTicksMs()
 
 int DG_GetKey(int* pressed, unsigned char* doomKey)
 {
-  /*
-  if (s_KeyQueueReadIndex == s_KeyQueueWriteIndex){
-    //key queue is empty
+    if (s_KeyQueueReadIndex == s_KeyQueueWriteIndex){
+        //key queue is empty
+        return 0;
+    } else {
+        unsigned short keyData = s_KeyQueue[s_KeyQueueReadIndex];
+        s_KeyQueueReadIndex++;
+        s_KeyQueueReadIndex %= KEYQUEUE_SIZE;
+
+        *pressed = keyData >> 8;
+        *doomKey = keyData & 0xFF;
+
+        return 1;
+    }
+
     return 0;
-  }else{
-    unsigned short keyData = s_KeyQueue[s_KeyQueueReadIndex];
-    s_KeyQueueReadIndex++;
-    s_KeyQueueReadIndex %= KEYQUEUE_SIZE;
-
-    *pressed = keyData >> 8;
-    *doomKey = keyData & 0xFF;
-
-    return 1;
-  }
-  */
-
-  return 0;
 }
 
 void DG_SetWindowTitle(const char * title)
