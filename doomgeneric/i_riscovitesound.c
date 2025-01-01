@@ -382,5 +382,5 @@ void riscovite_sound_interrupt_handler(uint64_t user_data, uint64_t buffer_space
         samples->right = raw_sample(right);
         samples++;
     }
-    write_samples(riscovite_sound_handle, &SAMPLE_BUF[0], sizeof(SAMPLE_BUF) / sizeof(SAMPLE_BUF[0]));
+    write_samples(riscovite_sound_handle, &SAMPLE_BUF[0], buffer_space);
 }
