@@ -193,7 +193,7 @@ void DG_Init(){
     r_u64 = set_input_report_descriptor(bgai_hnd, 0, &input_report_desc[0], sizeof(input_report_desc) / sizeof(input_report_desc[0]));
     CHECK_ERROR(r_u64, "failed to set input report descriptor");
 
-    r_v = request_sound_interrupt(bgai_hnd, 2048, riscovite_sound_interrupt_handler, 10, 0);
+    r_v = request_sound_interrupt(bgai_hnd, 3072, riscovite_sound_interrupt_handler, 10, 0);
     CHECK_ERROR(r_v, "failed to request sound buffer interrupt");
     r_v = enable_audio_interrupts(bgai_hnd, 0b1);
     CHECK_ERROR(r_v, "failed to enable audio interrupts");

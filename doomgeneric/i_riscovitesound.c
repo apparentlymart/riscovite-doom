@@ -40,7 +40,8 @@ struct sound_channel {
     uintptr_t stop_addr;
     sfxinfo_t *sfxinfo; // null when channel is inactive
     int addr_shift;
-    // TODO: vol, sep
+    double left_vol;
+    double right_vol;
 };
 
 #define NUM_CHANNELS (16)
@@ -97,6 +98,26 @@ static void I_Riscovite_UpdateSound(void) {
 }
 
 static void I_Riscovite_UpdateSoundParams(int handle, int vol, int sep) {
+    if (handle < 0 || handle >= NUM_CHANNELS) {
+        return;
+    }
+    struct sound_channel *channel = &sound_channels[handle];
+
+    int left = ((254 - sep) * vol) / 127;
+    int right = ((sep) * vol) / 127;
+
+    if (left < 0) left = 0;
+    else if ( left > 255) left = 255;
+    if (right < 0) right = 0;
+    else if (right > 255) right = 255;
+
+    // NOTE: This is a little risky, because the interrupt handler could
+    // run at any point during the following assignments. We're assuming
+    // it's okay because the panning/volume is likely to change gradually
+    // and so not a big deal if one of these changes gets observed before
+    // the other one.
+    channel->left_vol = (double)left / 255.0;
+    channel->right_vol = (double)right / 255.0;
 }
 
 static struct cached_sound *load_sound(sfxinfo_t *sfxinfo) {
@@ -203,15 +224,6 @@ static int I_Riscovite_StartSound(sfxinfo_t *sfxinfo, int channel_num, int vol, 
     }
 
     struct sound_channel *channel = &sound_channels[channel_num];
-    sfxinfo_t *existing = __atomic_load_n(&channel->sfxinfo, __ATOMIC_SEQ_CST);
-    if (existing != NULL && sfxinfo->priority < existing->priority) {
-        // This channel is already playing a higher-priority sample.
-        return -1;
-    }
-
-    // If we've determined that we actually want to start playing the sample
-    // then we first need to stop any currently-playing sample so that
-    // we can avoid conflicting with the interrupt handler's work.
     stop_sound(channel_num);
     // If the interrupt handler is triggered from here to when we store a
     // new pointer into channel->sfxinfo then it will treat this channel as
@@ -229,6 +241,9 @@ static int I_Riscovite_StartSound(sfxinfo_t *sfxinfo, int channel_num, int vol, 
     channel->addr_shift = cached->addr_shift;
     channel->next_addr = (uintptr_t)(cached->samples) << cached->addr_shift;
     channel->stop_addr = (uintptr_t)(cached->samples + cached->length) << cached->addr_shift;
+    I_Riscovite_UpdateSoundParams(channel_num, vol, sep); // sets vol_left and vol_right
+
+    printf("playing %s on channel %d with vol=%d, sep=%d\n", sfxinfo->name, channel_num, vol, sep);
 
     // We'll now finally populate sfxinfo, which makes this channel active
     // as far as the sound interrupt is concerned.
@@ -242,7 +257,12 @@ static void I_Riscovite_StopSound(int handle) {
 }
 
 static boolean I_Riscovite_SoundIsPlaying(int handle) {
-    return false;
+    if (handle < 0 || handle >= NUM_CHANNELS) {
+        return false;
+    }
+    struct sound_channel *channel = &sound_channels[handle];
+    sfxinfo_t *existing = __atomic_load_n(&channel->sfxinfo, __ATOMIC_SEQ_CST);
+    return existing != NULL;
 }
 
 static void I_Riscovite_PrecacheSounds(sfxinfo_t *sounds, int num_sounds) {
@@ -306,6 +326,16 @@ struct sound_frame {
     int16_t right;
 };
 
+static inline uint64_t raw_sample(double s) {
+    s *= 32767.0;
+    if (s > 32767.0) {
+        s = 32767.0;
+    } else if (s < -32767.0) {
+        s = -32767.0;
+    }
+    return (int16_t)s;
+}
+
 // This function periodically interrupts the rest of the program to feed
 // the RISCovite sound output buffer.
 void riscovite_sound_interrupt_handler(uint64_t user_data, uint64_t buffer_space) {
@@ -319,7 +349,8 @@ void riscovite_sound_interrupt_handler(uint64_t user_data, uint64_t buffer_space
 
     struct sound_frame *samples = (struct sound_frame *)SAMPLE_BUF;
     for (int fi = 0; fi < frame_count; fi++) {
-        double s = 0.0;
+        double left = 0.0;
+        double right = 0.0;
 
         struct sound_channel *channel = &sound_channels[0];
         for (int ci = 0; ci < NUM_CHANNELS; ci++) {
@@ -338,22 +369,17 @@ void riscovite_sound_interrupt_handler(uint64_t user_data, uint64_t buffer_space
                 channel->next_addr = addr;
             }
 
-            double scaled = (((double)*src_sample) - 128) * sample_scale / 127;
-            s += scaled;
+            double scaled = (((double)*src_sample) - 128) * sample_scale / 127.0;
+            left += (scaled  * channel->left_vol);
+            right += (scaled  * channel->right_vol);
 
             channel++;
         }
 
         // TODO: Mix in a sample from the music buffer too, if any.
 
-        int16_t raw = (int16_t)(s * 32767.0);
-        if (raw > 32767.0) {
-            raw = 32767.0;
-        } else if (raw < -32767.0) {
-            raw = -32767.0;
-        }
-        samples->left = raw;
-        samples->right = raw;
+        samples->left = raw_sample(left);
+        samples->right = raw_sample(right);
         samples++;
     }
     write_samples(riscovite_sound_handle, &SAMPLE_BUF[0], sizeof(SAMPLE_BUF) / sizeof(SAMPLE_BUF[0]));
