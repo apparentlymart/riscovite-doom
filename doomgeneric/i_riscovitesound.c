@@ -95,6 +95,20 @@ static int I_Riscovite_GetSfxLumpNum(sfxinfo_t *sfx) {
 }
 
 static void I_Riscovite_UpdateSound(void) {
+    // This implementation has nothing do do here because the interrupt
+    // handler deals with the periodic updates.
+    /*
+    printf("\x1b[0;0H\x1b[2J");
+    for (int i = 0; i < NUM_CHANNELS; i++) {
+        struct sound_channel *channel = &sound_channels[i];
+        sfxinfo_t *info = __atomic_load_n(&channel->sfxinfo, __ATOMIC_SEQ_CST);
+        if (info != NULL) {
+            printf("% 2d playing %s (%d/%d)\n", i, info->name, (int)channel->next_addr, (int)channel->stop_addr);
+        } else {
+            printf("% 2d idle\n", i);
+        }
+    }
+    */
 }
 
 static void I_Riscovite_UpdateSoundParams(int handle, int vol, int sep) {
@@ -200,11 +214,12 @@ static boolean lock_sound(sfxinfo_t *sfxinfo) {
     return true;
 }
 
-static inline sfxinfo_t *stop_sound(int handle) {
+static void stop_sound(int handle) {
     // Setting sfxinfo to NULL is enough to make the audio interrupt ignore
     // this channel entirely, until I_Riscovite_StartSound writes a non-NULL
     // pointer here again later.
-    return __atomic_exchange_n(&sound_channels[handle].sfxinfo, NULL, __ATOMIC_SEQ_CST);
+    struct sound_channel *channel = &sound_channels[handle];
+    __atomic_store_n(&channel->sfxinfo, NULL, __ATOMIC_SEQ_CST);
 }
 
 static int I_Riscovite_StartSound(sfxinfo_t *sfxinfo, int channel_num, int vol, int sep) {
@@ -242,8 +257,6 @@ static int I_Riscovite_StartSound(sfxinfo_t *sfxinfo, int channel_num, int vol, 
     channel->next_addr = (uintptr_t)(cached->samples) << cached->addr_shift;
     channel->stop_addr = (uintptr_t)(cached->samples + cached->length) << cached->addr_shift;
     I_Riscovite_UpdateSoundParams(channel_num, vol, sep); // sets vol_left and vol_right
-
-    printf("playing %s on channel %d with vol=%d, sep=%d\n", sfxinfo->name, channel_num, vol, sep);
 
     // We'll now finally populate sfxinfo, which makes this channel active
     // as far as the sound interrupt is concerned.
@@ -348,39 +361,35 @@ void riscovite_sound_interrupt_handler(uint64_t user_data, uint64_t buffer_space
     uint64_t frame_count = buffer_space / 2;
 
     struct sound_frame *samples = (struct sound_frame *)SAMPLE_BUF;
-    for (int fi = 0; fi < frame_count; fi++) {
+    for (int fi = 0; fi < frame_count; fi++, samples++) {
         double left = 0.0;
         double right = 0.0;
 
         struct sound_channel *channel = &sound_channels[0];
-        for (int ci = 0; ci < NUM_CHANNELS; ci++) {
+        for (int ci = 0; ci < NUM_CHANNELS; ci++, channel++) {
             sfxinfo_t *info = __atomic_load_n(&channel->sfxinfo, __ATOMIC_SEQ_CST);
             if (info == NULL) {
                 continue; // channel is currently inactive, so we mustn't modify it at all
             }
 
-            uintptr_t addr = channel->next_addr;
-            uint8_t *src_sample = (uint8_t *)(addr >> channel->addr_shift);
-            addr++;
-            if (addr == channel->stop_addr) {
+            uintptr_t addr = channel->next_addr++;
+            if (addr >= channel->stop_addr) {
                 // Activity on this channel is finished.
-                __atomic_store_n(&channel->sfxinfo, NULL, __ATOMIC_SEQ_CST);
-            } else {
-                channel->next_addr = addr;
+                stop_sound(ci);
+                continue;
             }
+
+            uint8_t *src_sample = (uint8_t *)(addr >> channel->addr_shift);
 
             double scaled = (((double)*src_sample) - 128) * sample_scale / 127.0;
             left += (scaled  * channel->left_vol);
             right += (scaled  * channel->right_vol);
-
-            channel++;
         }
 
         // TODO: Mix in a sample from the music buffer too, if any.
 
         samples->left = raw_sample(left);
         samples->right = raw_sample(right);
-        samples++;
     }
     write_samples(riscovite_sound_handle, &SAMPLE_BUF[0], buffer_space);
 }

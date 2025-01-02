@@ -866,7 +866,6 @@ static int I_SDL_StartSound(sfxinfo_t *sfxinfo, int channel, int vol, int sep)
 
     // play sound
 
-    printf("playing %s on channel %d with vol=%d, sep=%d\n", sfxinfo->name, channel, vol, sep);
     Mix_PlayChannelTimed(channel, &snd->chunk, 0, -1);
 
     channels_playing[channel] = sfxinfo;
