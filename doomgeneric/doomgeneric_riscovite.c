@@ -179,6 +179,10 @@ void DG_Init(){
     gfx_src_buf.pixmap_buf = gfx_buf;
     gfx_src_buf.colormap_buf = (uint32_t *)(gfx_buf + (fb_desc.width * fb_desc.height));
     gfx_src_buf.row_pitch = fb_desc.width;
+    // On RISCovite we ask Doom Generic to render directly into our source
+    // buffer, because then we can transfer directly from there to the graphics
+    // output buffer.
+    DG_ScreenBuffer = gfx_buf;
 
     // TEMP: Some debug information about the framebuffer
     printf("framebuffer:\n");
@@ -250,16 +254,19 @@ void DG_DrawFrame()
     };
     struct riscovite_result_void r_v;
 
-    // Doom Generic wants to manage its own render target buffer, so
-    // unfortunately we need to do an extra copy here. In future we'll make
-    // deeper modifications to remove this indirection and have the engine
-    // just render directly into the buffer we'll transfer from below.
-    memcpy(gfx_src_buf.pixmap_buf, DG_ScreenBuffer, DOOMGENERIC_RESX*DOOMGENERIC_RESY);
+    // On RISCovite we have DG_Init arrange for DG_ScreenBuffer to point
+    // directly to the graphics source buffer it previously registered as
+    // source buffer zero, so we don't need to do anything more with that
+    // buffer here except tell the system to copy its contents into the
+    // graphics scanout buffer.
 
+    // Unless the palette has changed (checked below) we use only the first
+    // element of TRANSFERS, ignoring the entry that updates the colormap.
     int transfers_len = 1;
+
     if (palette_changed) {
         // The RISCovite colormap format is swizzled compared to the one used
-        // by this codebase, so we need to do a little extra work here.
+        // by this codebase, so we need to _do_ a little extra work for these.
         struct color *color_src = &colors[0];
         uint32_t *color_dst = gfx_src_buf.colormap_buf;
         for (int i = 0; i < (sizeof(colors) / sizeof(colors[0])); i++) {
@@ -274,6 +281,8 @@ void DG_DrawFrame()
 
     r_v = update(graphics_hnd, GRAPHICS_PRESENT|GRAPHICS_CLEAR_FRAME_INTERRUPT, &TRANSFERS[0], transfers_len);
     CHECK_ERROR(r_v, "failed to present framebuffer");
+
+    handleKeyInput();
 }
 
 void DG_SleepMs(uint32_t ms)

@@ -18,7 +18,11 @@ void doomgeneric_Create(int argc, char **argv)
 
 	M_FindResponseFile();
 
+#ifndef DOOMGENERIC_CUSTOM_FRAMEBUFFER
 	DG_ScreenBuffer = malloc(DOOMGENERIC_RESX * DOOMGENERIC_RESY * 4);
+#else
+	// DG_Init is required to assign a reasonable pointer to DG_ScreenBuffer, then.
+#endif
 
 	DG_Init();
 
