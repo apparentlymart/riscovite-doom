@@ -18,6 +18,7 @@
 #define KEYQUEUE_SIZE 16
 
 static struct framebuffer_desc fb_desc;
+static struct source_buffer_desc gfx_src_buf;
 static uint64_t bgai_hnd;
 static bool advance_frame = false;
 
@@ -145,41 +146,58 @@ void DG_Init(){
     struct riscovite_result_void r_v;
     struct riscovite_result_uint64 r_u64;
 
-    r_u64 = riscovite_dup(RISCOVITE_HND_STDOUT);
-    uint64_t hnd = CHECK_RESULT(r_u64, "failed to dup stdout");
+    r_u64 = riscovite_interface_dup(RISCOVITE_HND_UI, UINT128(0x8cbb5793df815eea, 0x9128ace2194e2c34), 0);
+    uint64_t claim_hnd = CHECK_RESULT(r_u64, "UI object does not support console claim interface");
+
+    r_u64 = claim_console(claim_hnd, 0);
+    uint64_t console_hnd = CHECK_RESULT(r_u64, "failed to claim console");
+    riscovite_close(claim_hnd); // Don't need the claim handle anymore
 
     r_v = riscovite_select_interface(
-        hnd, UINT128(0x2b4c7062cfae565e, 0xa80dd0e14e44dc3a), 0);
-    CHECK_ERROR(r_v, "failed to select BGAI claim interface");
+        console_hnd, UINT128(0x2b4c7062cfae565e, 0xa80dd0e14e44dc3a), 1);
+    CHECK_ERROR(r_v, "failed to select console mux BGAI interface");
 
-    r_u64 = open_bgai(hnd, 0b111);
-    hnd = CHECK_RESULT(r_u64, "failed to open BGAI object");
+    r_u64 = open_framebuffer(console_hnd, DOOMGENERIC_RESX, DOOMGENERIC_RESY, 2, &fb_desc);
+    uint64_t gfx_hnd = CHECK_RESULT(r_u64, "failed to create graphics framebuffer");
 
-    r_v = riscovite_select_interface(
-        hnd, UINT128(0x68d60363c1f353e0, 0xa0b4ec596dd8a689), 0);
-    CHECK_ERROR(r_v, "failed to select BGAI graphics interface");
+    r_u64 = open_audio_output(console_hnd);
+    uint64_t aud_hnd = CHECK_RESULT(r_u64, "failed to create audio output");
 
-    r_v = riscovite_select_interface(
-        hnd, UINT128(0x9a360746043f5a68, 0x8fe7bd9bd407a4fb), 1);
-    CHECK_ERROR(r_v, "failed to select BGAI audio interface");
+    r_u64 = open_input(console_hnd);
+    uint64_t inp_hnd = CHECK_RESULT(r_u64, "failed to create input context");
 
-    r_v = riscovite_select_interface(
-        hnd, UINT128(0x7eeebf1448835940, 0x907d57f507530d69), 2);
-    CHECK_ERROR(r_v, "failed to select BGAI input interface");
+    r_u64 = create_graphics_source_buffer(gfx_hnd, 65536);
+    uint64_t gfx_buf_addr = CHECK_RESULT(r_u64, "failed to create graphics source buffer");
+    uint8_t *gfx_buf = (uint8_t *)gfx_buf_addr;
 
-    // TODO: Also setup input report descriptor
-
-    r_v = open_framebuffer(hnd, DOOMGENERIC_RESX, DOOMGENERIC_RESY, 2, &fb_desc);
-    CHECK_ERROR(r_v, "failed to open framebuffer");
+    gfx_src_buf.buf = gfx_buf;
+    gfx_src_buf.row_pitch = fb_desc.width;
 
     // TEMP: Some debug information about the framebuffer
     printf("framebuffer:\n");
-    printf("  address:     %p\n", fb_desc.buf);
+    printf("  address:     %p\n", gfx_src_buf.buf);
     printf("  width:       %d\n", (int)fb_desc.width);
     printf("  height:      %d\n", (int)fb_desc.height);
-    printf("  row_pitch:   %ld\n", (long int)fb_desc.row_pitch);
-    printf("  pixel_pitch: %d\n", (int)fb_desc.pixel_pitch);
+    printf("  row_pitch:   %d\n", (int)gfx_src_buf.row_pitch);
 
+    // On RISCovite we have "Doom Generic" render directly into the source
+    // buffer we've just allocated, instead of to the buffer it malloced for
+    // itself previously, because we can copy directly from there into the
+    // graphics output.
+    free(DG_ScreenBuffer);
+    DG_ScreenBuffer = gfx_src_buf.buf;
+
+    r_v = update(gfx_hnd, GRAPHICS_PRESENT|GRAPHICS_CLEAR_FRAME_INTERRUPT, NULL, 0);
+    CHECK_ERROR(r_v, "failed to present graphics");
+
+    // We need an input report descriptor so we can read the contents of
+    // the button input buffer later.
+    r_u64 = set_button_input_buffer(inp_hnd, sizeof(button_events.events) / sizeof(button_events.events[0]));
+    CHECK_ERROR(r_u64, "failed to set button input buffer size");
+    r_u64 = set_input_report_descriptor(inp_hnd, 0, &input_report_desc[0], sizeof(input_report_desc) / sizeof(input_report_desc[0]));
+    CHECK_ERROR(r_u64, "failed to set input report descriptor");
+
+    /*
     bgai_hnd = hnd;
     riscovite_sound_handle = hnd; // used by i_riscovitesound.c and i_riscovitemusic.c
 
@@ -197,13 +215,28 @@ void DG_Init(){
     CHECK_ERROR(r_v, "failed to request sound buffer interrupt");
     r_v = enable_audio_interrupts(bgai_hnd, 0b1);
     CHECK_ERROR(r_v, "failed to enable audio interrupts");
+    */
 }
 
 void DG_DrawFrame()
 {
+    static struct graphics_xfer_req TRANSFERS[] = {
+        {
+            .width = DOOMGENERIC_RESX,
+            .height = DOOMGENERIC_RESY,
+            .flags = 0,
+            .stride = DOOMGENERIC_RESX,
+            .source = 0,
+            .dst_x = 0,
+            .dst_y = 0,
+        },
+        // TODO: Also the colormap transfer
+    };
+
     struct riscovite_result_void r_v;
 
     uint8_t *src = DG_ScreenBuffer;
+    /*
     uint8_t *dst = fb_desc.buf;
     int src_stride = DOOMGENERIC_RESX;
     int dst_stride = fb_desc.row_pitch;
@@ -233,6 +266,7 @@ void DG_DrawFrame()
       CHECK_ERROR(r_v, "failed to present framebuffer");
     }
     handleKeyInput();
+    */
 }
 
 void DG_SleepMs(uint32_t ms)

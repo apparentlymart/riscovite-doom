@@ -4,17 +4,26 @@
 #include <riscovite.h>
 
 // BGAI claim interface
-#define SYS_OPEN(slot) (~((slot) | (0x00000001 << 4)))
+#define SYS_CLAIM_CONSOLE(slot) (~((slot) | (0x00000001 << 4)))
+
+// Console mux interface
+#define SYS_SELECT_RESOURCES(slot) (~((slot) | (0x00000001 << 4)))
+
+// Console BGAI interface
+#define SYS_CREATE_GRAPHICS_FRAMEBUFFER(slot) (~((slot) | (0x00000011 << 4)))
+#define SYS_CREATE_AUDIO_OUTPUT(slot) (~((slot) | (0x00000021 << 4)))
+#define SYS_CREATE_INPUT_CONTEXT(slot) (~((slot) | (0x00000031 << 4)))
 
 // BGAI graphics interface
-#define SYS_OPEN_FRAMEBUFFER(slot) (~((slot) | (0x00000f01 << 4)))
-#define SYS_PRESENT(slot) (~((slot) | (0x00000001 << 4)))
-#define SYS_WRITE_COLORMAP(slot) (~((slot) | (0x00000002 << 4)))
-#define SYS_REQ_FRAME_INTERRUPT(slot) (~((slot) | (0x00000f05 << 4)))
-#define SYS_ENABLE_GRAPHICS_INTERRUPTS(slot) (~((slot) | (0x00000003 << 4)))
-#define PRESENT_PIXBUF (0b0001)
-#define PRESENT_COLORMAP (0b0010)
-#define CLEAR_FRAME_INTERRUPT (0b1000)
+#define SYS_CREATE_SOURCE_BUFFER(slot) (~((slot) | (0x00000f07 << 4)))
+#define SYS_UPDATE(slot) (~((slot) | (0x00000001 << 4)))
+#define SYS_SET_SOURCE_BUFFERS(slot) (~((slot) | (0x00000002 << 4)))
+#define SYS_ENABLE_GRAPHICS_EVENTS(slot) (~((slot) | (0x00000003 << 4)))
+#define SYS_DISABLE_GRAPHICS_EVENTS(slot) (~((slot) | (0x00000004 << 4)))
+#define SYS_DISMISS_GRAPHICS_EVENTS(slot) (~((slot) | (0x00000005 << 4)))
+#define EVT_GRAPHICS_FRAME_INTERRUPT(slot) (~((slot) | (0x00000001 << 4)))
+#define GRAPHICS_PRESENT ((uint64_t)(1UL << 63))
+#define GRAPHICS_CLEAR_FRAME_INTERRUPT ((uint64_t)(1UL << 62))
 
 // BGAI audio interface
 #define SYS_REQ_AUDIO_BUFFER_INTERRUPT(slot) (~((slot) | (0x00000f01 << 4)))
@@ -61,7 +70,7 @@
     (result).value;                                                            \
   })
 
-static inline struct riscovite_result_uint64 open_bgai(uint64_t hnd,
+static inline struct riscovite_result_uint64 claim_console(uint64_t hnd,
                                                        uint64_t flags) {
   register uint64_t _hnd asm("a0") = hnd;
   register uint64_t _flags asm("a1") = (uint64_t)flags;
@@ -70,89 +79,106 @@ static inline struct riscovite_result_uint64 open_bgai(uint64_t hnd,
   asm volatile inline("li a7, %[FUNCNUM]\n"
                       "ecall\n"
                       : [RET] "=r"(__ret), [ERR] "=r"(__err)
-                      : "r0"(_hnd), "r1"(_flags), [FUNCNUM] "n"(SYS_OPEN(0))
+                      : "r0"(_hnd), "r1"(_flags), [FUNCNUM] "n"(SYS_CLAIM_CONSOLE(0))
                       : "a7", "memory");
   return ((struct riscovite_result_uint64){__ret, __err});
 }
 
 struct framebuffer_desc {
-  uint8_t *buf;
-  uint64_t row_pitch;
   uint16_t width;
   uint16_t height;
-  uint8_t pixel_pitch;
-  uint8_t _reserved[3];
+};
+struct source_buffer_desc {
+  uint16_t row_pitch;
+  uint8_t *buf;
+};
+struct graphics_xfer_req {
+  uint16_t width;
+  uint16_t height;
+  uint16_t flags;
+  uint16_t stride;
+  uint32_t source;
+  int16_t dst_x;
+  int16_t dst_y;
 };
 
-static inline struct riscovite_result_void
+static inline struct riscovite_result_uint64
 open_framebuffer(uint64_t hnd, uint16_t width, uint16_t height,
                  uint16_t pixel_fmt, struct framebuffer_desc *result) {
   register uint64_t _hnd asm("a0") = hnd;
   register uint64_t _width asm("a1") = (uint64_t)width;
   register uint64_t _height asm("a2") = (uint64_t)height;
   register uint64_t _pixel_fmt asm("a3") = (uint64_t)pixel_fmt;
-  register uint64_t _result asm("a4") = (uint64_t)result;
+  register uint64_t _flags asm("a4") = 0;
+  register uint64_t _result asm("a5") = (uint64_t)result;
   register uint64_t __ret asm("a0");
   register uint64_t __err asm("a1");
   asm volatile inline("li a7, %[FUNCNUM]\n"
                       "ecall\n"
                       : [RET] "=r"(__ret), [ERR] "=r"(__err)
-                      : "r0"(_hnd), "r1"(_width), "r"(_height), "r"(_pixel_fmt),
-                        "r"(_result), [FUNCNUM] "n"(SYS_OPEN_FRAMEBUFFER(0))
+                      : "r0"(_hnd), "r1"(_width), "r"(_height), "r"(_flags), "r"(_pixel_fmt),
+                        "r"(_result), [FUNCNUM] "n"(SYS_CREATE_GRAPHICS_FRAMEBUFFER(1))
                       : "a7", "memory");
-  return ((struct riscovite_result_void){__ret, __err});
+  return ((struct riscovite_result_uint64){__ret, __err});
+}
+
+static inline struct riscovite_result_uint64
+create_graphics_source_buffer(uint64_t hnd, uint64_t size) {
+  register uint64_t _hnd asm("a0") = hnd;
+  register uint64_t _size asm("a1") = (uint64_t)size;
+  register uint64_t _flags asm("a2") = 0;
+  register uint64_t __ret asm("a0");
+  register uint64_t __err asm("a1");
+  asm volatile inline("li a7, %[FUNCNUM]\n"
+                      "ecall\n"
+                      : [RET] "=r"(__ret), [ERR] "=r"(__err)
+                      : "r0"(_hnd), "r1"(_size), "r"(_flags),
+                        [FUNCNUM] "n"(SYS_CREATE_SOURCE_BUFFER(0))
+                      : "a7", "memory");
+  return ((struct riscovite_result_uint64){__ret, __err});
+}
+
+static inline struct riscovite_result_uint64
+open_audio_output(uint64_t hnd) {
+  register uint64_t _hnd asm("a0") = hnd;
+  register uint64_t __ret asm("a0");
+  register uint64_t __err asm("a1");
+  asm volatile inline("li a7, %[FUNCNUM]\n"
+                      "ecall\n"
+                      : [RET] "=r"(__ret), [ERR] "=r"(__err)
+                      : "r0"(_hnd), [FUNCNUM] "n"(SYS_CREATE_AUDIO_OUTPUT(1))
+                      : "a7", "memory");
+  return ((struct riscovite_result_uint64){__ret, __err});
+}
+
+static inline struct riscovite_result_uint64
+open_input(uint64_t hnd) {
+  register uint64_t _hnd asm("a0") = hnd;
+  register uint64_t __ret asm("a0");
+  register uint64_t __err asm("a1");
+  asm volatile inline("li a7, %[FUNCNUM]\n"
+                      "ecall\n"
+                      : [RET] "=r"(__ret), [ERR] "=r"(__err)
+                      : "r0"(_hnd), [FUNCNUM] "n"(SYS_CREATE_INPUT_CONTEXT(1))
+                      : "a7", "memory");
+  return ((struct riscovite_result_uint64){__ret, __err});
 }
 
 static inline struct riscovite_result_void
-present(uint64_t hnd, uint64_t flags, uint64_t *rects, uint64_t rect_count) {
+update(uint64_t hnd, uint64_t flags, uint64_t *transfers, uint64_t transfer_count) {
   register uint64_t _hnd asm("a0") = hnd;
   register uint64_t _flags asm("a1") = (uint64_t)flags;
-  register uint64_t _rects asm("a2") = (uint64_t)rects;
-  register uint64_t _rect_count asm("a3") = (uint64_t)rect_count;
+  register uint64_t _transfers asm("a2") = (uint64_t)transfers;
+  register uint64_t _transfer_count asm("a3") = (uint64_t)transfer_count;
+  register uint64_t _access_tree_update asm("a4") = 0;
   register uint64_t __ret asm("a0");
   register uint64_t __err asm("a1");
   asm volatile inline("li a7, %[FUNCNUM]\n"
                       "ecall\n"
                       : [RET] "=r"(__ret), [ERR] "=r"(__err)
-                      : "r0"(_hnd), "r1"(_flags), "r"(_rects),
-                        "r"(_rect_count), [FUNCNUM] "n"(SYS_PRESENT(0))
+                      : "r0"(_hnd), "r1"(_flags), "r"(_transfers),
+                        "r"(_transfer_count), "r"(_access_tree_update), [FUNCNUM] "n"(SYS_UPDATE(0))
                       : "a7", "memory");
-  return ((struct riscovite_result_void){__ret, __err});
-}
-
-static inline struct riscovite_result_void
-write_colormap(uint64_t hnd, uint8_t *colors, uint64_t count, uint64_t offset) {
-  register uint64_t _hnd asm("a0") = hnd;
-  register uint64_t _colors asm("a1") = (uint64_t)colors;
-  register uint64_t _count asm("a2") = (uint64_t)count;
-  register uint64_t _offset asm("a3") = (uint64_t)offset;
-  register uint64_t __ret asm("a0");
-  register uint64_t __err asm("a1");
-  asm volatile inline("li a7, %[FUNCNUM]\n"
-                      "ecall\n"
-                      : [RET] "=r"(__ret), [ERR] "=r"(__err)
-                      : "r0"(_hnd), "r1"(_colors), "r"(_count),
-                        "r"(_offset), [FUNCNUM] "n"(SYS_WRITE_COLORMAP(0))
-                      : "a7", "memory");
-  return ((struct riscovite_result_void){__ret, __err});
-}
-
-static inline struct riscovite_result_void
-request_frame_interrupt(uint64_t hnd, void *handler_addr, uint64_t flags,
-                        uint64_t user_data) {
-  register uint64_t _hnd asm("a0") = hnd;
-  register uint64_t _handler_addr asm("a1") = (uint64_t)handler_addr;
-  register uint64_t _flags asm("a2") = (uint64_t)flags;
-  register uint64_t _user_data asm("a3") = (uint64_t)user_data;
-  register uint64_t __ret asm("a0");
-  register uint64_t __err asm("a1");
-  asm volatile inline(
-      "li a7, %[FUNCNUM]\n"
-      "ecall\n"
-      : [RET] "=r"(__ret), [ERR] "=r"(__err)
-      : "r0"(_hnd), "r1"(_handler_addr), "r"(_flags),
-        "r"(_user_data), [FUNCNUM] "n"(SYS_REQ_FRAME_INTERRUPT(0))
-      : "a7", "memory");
   return ((struct riscovite_result_void){__ret, __err});
 }
 
@@ -165,7 +191,7 @@ static inline struct riscovite_result_void enable_graphics_interrupts(uint64_t h
                       "ecall\n"
                       : [RET] "=r"(__ret), [ERR] "=r"(__err)
                       : "r0"(_hnd),
-                        "r1"(_mask), [FUNCNUM] "n"(SYS_ENABLE_GRAPHICS_INTERRUPTS(0))
+                        "r1"(_mask), [FUNCNUM] "n"(SYS_ENABLE_GRAPHICS_EVENTS(0))
                       : "a7", "memory");
   return ((struct riscovite_result_void){__ret, __err});
 }
@@ -184,7 +210,7 @@ set_input_report_descriptor(uint64_t hnd, uint64_t desc_id,
       "ecall\n"
       : [RET] "=r"(__ret), [ERR] "=r"(__err)
       : "r0"(_hnd), "r1"(_desc_id), "r"(_addr),
-        "r"(_field_count), [FUNCNUM] "n"(SYS_SET_REPORT_DESCRIPTOR(2))
+        "r"(_field_count), [FUNCNUM] "n"(SYS_SET_REPORT_DESCRIPTOR(0))
       : "a7", "memory");
   return ((struct riscovite_result_uint64){__ret, __err});
 }
@@ -199,7 +225,7 @@ set_button_input_buffer(uint64_t hnd, uint8_t size) {
       "li a7, %[FUNCNUM]\n"
       "ecall\n"
       : [RET] "=r"(__ret), [ERR] "=r"(__err)
-      : "r0"(_hnd), "r1"(_size), [FUNCNUM] "n"(SYS_SET_BUTTON_INPUT_BUFFER(2))
+      : "r0"(_hnd), "r1"(_size), [FUNCNUM] "n"(SYS_SET_BUTTON_INPUT_BUFFER(0))
       : "a7", "memory");
   return ((struct riscovite_result_uint64){__ret, __err});
 }
@@ -216,7 +242,7 @@ get_input_report(uint64_t hnd, uint64_t desc_id, void *into, uint64_t flags) {
                       "ecall\n"
                       : [RET] "=r"(__ret), [ERR] "=r"(__err)
                       : "r0"(_hnd), "r1"(_desc_id), "r"(_into),
-                        "r"(_flags), [FUNCNUM] "n"(SYS_GET_REPORT(2))
+                        "r"(_flags), [FUNCNUM] "n"(SYS_GET_REPORT(0))
                       : "a7", "memory");
   return ((struct riscovite_result_uint64){__ret, __err});
 }
