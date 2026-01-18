@@ -81,7 +81,10 @@ typedef enum
 #endif
 #else
 #include <stdbool.h>
-typedef bool boolean;
+// NOTE: We cannot actually use bool here because some parts of the code
+// assign values other than 0 or 1 to places of type boolean, which would
+// be undefined behavior for the real bool.
+typedef char boolean;
 #endif
 
 typedef uint8_t byte;
