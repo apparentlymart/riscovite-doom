@@ -240,7 +240,7 @@ void DG_DrawFrame()
         },
         {
             .width = 256,
-            .height = 0,
+            .height = 1,
             .flags = 1 << 12, // target is colormap
             .stride = 256,
             .source = 0,
