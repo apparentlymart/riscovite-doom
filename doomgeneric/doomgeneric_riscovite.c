@@ -19,7 +19,8 @@
 
 static struct framebuffer_desc fb_desc;
 static struct source_buffer_desc gfx_src_buf;
-static uint64_t bgai_hnd;
+static uint64_t graphics_hnd;
+static uint64_t input_hnd;
 static bool advance_frame = false;
 
 struct button_events_report {
@@ -130,7 +131,7 @@ static void addKeyToQueue(int pressed, unsigned int keyCode){
 
 static void handleKeyInput(){
     struct riscovite_result_uint64 r_u64;
-    r_u64 = get_input_report(bgai_hnd, 0, &button_events, INPUT_REPORT_CONSUME);
+    r_u64 = get_input_report(input_hnd, 0, &button_events, INPUT_REPORT_CONSUME);
     CHECK_ERROR(r_u64, "failed to get input report");
 
     int count = button_events.count;
@@ -159,33 +160,32 @@ void DG_Init(){
 
     r_u64 = open_framebuffer(console_hnd, DOOMGENERIC_RESX, DOOMGENERIC_RESY, 2, &fb_desc);
     uint64_t gfx_hnd = CHECK_RESULT(r_u64, "failed to create graphics framebuffer");
+    graphics_hnd = gfx_hnd;
 
     r_u64 = open_audio_output(console_hnd);
     uint64_t aud_hnd = CHECK_RESULT(r_u64, "failed to create audio output");
+    riscovite_sound_handle = aud_hnd; // used by i_riscovitesound.c and i_ricovitemusic.c
 
     r_u64 = open_input(console_hnd);
     uint64_t inp_hnd = CHECK_RESULT(r_u64, "failed to create input context");
+    input_hnd = inp_hnd;
 
     r_u64 = create_graphics_source_buffer(gfx_hnd, 65536);
     uint64_t gfx_buf_addr = CHECK_RESULT(r_u64, "failed to create graphics source buffer");
     uint8_t *gfx_buf = (uint8_t *)gfx_buf_addr;
+    r_v = set_graphics_source_buffers(gfx_hnd, &gfx_buf_addr, 1);
+    CHECK_ERROR(r_v, "failed to set graphics source buffer");
 
-    gfx_src_buf.buf = gfx_buf;
+    gfx_src_buf.pixmap_buf = gfx_buf;
+    gfx_src_buf.colormap_buf = (uint32_t *)(gfx_buf + (fb_desc.width * fb_desc.height));
     gfx_src_buf.row_pitch = fb_desc.width;
 
     // TEMP: Some debug information about the framebuffer
     printf("framebuffer:\n");
-    printf("  address:     %p\n", gfx_src_buf.buf);
+    printf("  address:     %p\n", gfx_src_buf.pixmap_buf);
     printf("  width:       %d\n", (int)fb_desc.width);
     printf("  height:      %d\n", (int)fb_desc.height);
     printf("  row_pitch:   %d\n", (int)gfx_src_buf.row_pitch);
-
-    // On RISCovite we have "Doom Generic" render directly into the source
-    // buffer we've just allocated, instead of to the buffer it malloced for
-    // itself previously, because we can copy directly from there into the
-    // graphics output.
-    free(DG_ScreenBuffer);
-    DG_ScreenBuffer = gfx_src_buf.buf;
 
     r_v = update(gfx_hnd, GRAPHICS_PRESENT|GRAPHICS_CLEAR_FRAME_INTERRUPT, NULL, 0);
     CHECK_ERROR(r_v, "failed to present graphics");
@@ -197,25 +197,33 @@ void DG_Init(){
     r_u64 = set_input_report_descriptor(inp_hnd, 0, &input_report_desc[0], sizeof(input_report_desc) / sizeof(input_report_desc[0]));
     CHECK_ERROR(r_u64, "failed to set input report descriptor");
 
-    /*
-    bgai_hnd = hnd;
-    riscovite_sound_handle = hnd; // used by i_riscovitesound.c and i_riscovitemusic.c
+    r_v = request_sound_interrupt(aud_hnd, 3072, riscovite_sound_interrupt_handler, 10, 0);
+    CHECK_ERROR(r_v, "failed to request audio buffer interrupts");
+    r_v = enable_audio_interrupts(aud_hnd, 0b1);
+    CHECK_ERROR(r_v, "failed to enable audio buffer interrupts");
 
-    r_v = present(bgai_hnd, PRESENT_COLORMAP|PRESENT_PIXBUF|CLEAR_FRAME_INTERRUPT, NULL, 0);
-    CHECK_ERROR(r_v, "failed to present framebuffer");
-
-    // We also need an input report descriptor so we can read the contents of
-    // the button input buffer later.
-    r_u64 = set_button_input_buffer(bgai_hnd, sizeof(button_events.events) / sizeof(button_events.events[0]));
-    CHECK_ERROR(r_u64, "failed to set button input buffer size");
-    r_u64 = set_input_report_descriptor(bgai_hnd, 0, &input_report_desc[0], sizeof(input_report_desc) / sizeof(input_report_desc[0]));
-    CHECK_ERROR(r_u64, "failed to set input report descriptor");
-
-    r_v = request_sound_interrupt(bgai_hnd, 3072, riscovite_sound_interrupt_handler, 10, 0);
-    CHECK_ERROR(r_v, "failed to request sound buffer interrupt");
-    r_v = enable_audio_interrupts(bgai_hnd, 0b1);
-    CHECK_ERROR(r_v, "failed to enable audio interrupts");
-    */
+    static struct mux_resource_sel SELECTIONS[] = {
+        {
+            .typ = 1, // graphics
+            .flags = 0,
+            .hnd = 0, // populated below
+        },
+        {
+            .typ = 2, // audio
+            .flags = 0,
+            .hnd = 0, // populated below
+        },
+        {
+            .typ = 3, // input
+            .flags = 0,
+            .hnd = 0, // populated below
+        },
+    };
+    SELECTIONS[0].hnd = gfx_hnd;
+    SELECTIONS[1].hnd = aud_hnd;
+    SELECTIONS[2].hnd = inp_hnd;
+    r_v = mux_select_resources(console_hnd, &SELECTIONS[0], sizeof(SELECTIONS) / sizeof(SELECTIONS[0]));
+    CHECK_ERROR(r_v, "failed to configure console mux resource selections");
 }
 
 void DG_DrawFrame()
@@ -230,43 +238,42 @@ void DG_DrawFrame()
             .dst_x = 0,
             .dst_y = 0,
         },
-        // TODO: Also the colormap transfer
+        {
+            .width = 256,
+            .height = 0,
+            .flags = 1 << 12, // target is colormap
+            .stride = 256,
+            .source = 0,
+            .dst_x = 0,
+            .dst_y = 0,
+        },
     };
-
     struct riscovite_result_void r_v;
 
-    uint8_t *src = DG_ScreenBuffer;
-    /*
-    uint8_t *dst = fb_desc.buf;
-    int src_stride = DOOMGENERIC_RESX;
-    int dst_stride = fb_desc.row_pitch;
-    for (int y = 0; y < DOOMGENERIC_RESY; y++) {
-        //printf("memcpy(%p, %p, %d)\n", dst, src, DOOMGENERIC_RESX);
-        memcpy(dst, src, DOOMGENERIC_RESX);
-        src += src_stride;
-        dst += dst_stride;
-    }
+    // Doom Generic wants to manage its own render target buffer, so
+    // unfortunately we need to do an extra copy here. In future we'll make
+    // deeper modifications to remove this indirection and have the engine
+    // just render directly into the buffer we'll transfer from below.
+    memcpy(gfx_src_buf.pixmap_buf, DG_ScreenBuffer, DOOMGENERIC_RESX*DOOMGENERIC_RESY);
+
+    int transfers_len = 1;
     if (palette_changed) {
-      uint8_t colormap[3 * 256];
-      uint8_t *color_dst = &colormap[0];
-      struct color *color_src = &colors[0];
-      for (int i = 0; i < (sizeof(colors) / sizeof(colors[0])); i++) {
-        color_dst[0] = color_src->b;
-        color_dst[1] = color_src->g;
-        color_dst[2] = color_src->r;
-        color_dst += 3;
-        color_src += 1;
-      }
-      r_v = write_colormap(bgai_hnd, &colormap[0], 256, 0);
-      CHECK_ERROR(r_v, "failed to update colormap");
-      r_v = present(bgai_hnd, PRESENT_COLORMAP|PRESENT_PIXBUF|CLEAR_FRAME_INTERRUPT, NULL, 0);
-      CHECK_ERROR(r_v, "failed to present framebuffer");
-    } else {
-      r_v = present(bgai_hnd, PRESENT_PIXBUF|CLEAR_FRAME_INTERRUPT, NULL, 0);
-      CHECK_ERROR(r_v, "failed to present framebuffer");
+        // The RISCovite colormap format is swizzled compared to the one used
+        // by this codebase, so we need to do a little extra work here.
+        struct color *color_src = &colors[0];
+        uint32_t *color_dst = gfx_src_buf.colormap_buf;
+        for (int i = 0; i < (sizeof(colors) / sizeof(colors[0])); i++) {
+            *color_dst = (color_src->r << 16) | (color_src->g << 8) | (color_src->b << 0);
+            color_dst += 1;
+            color_src += 1;
+        }
+        TRANSFERS[1].source = (uint8_t*)gfx_src_buf.colormap_buf - gfx_src_buf.pixmap_buf;
+        palette_changed = false;
+        transfers_len = 2; // need to transfer the palette now too
     }
-    handleKeyInput();
-    */
+
+    r_v = update(graphics_hnd, GRAPHICS_PRESENT|GRAPHICS_CLEAR_FRAME_INTERRUPT, &TRANSFERS[0], transfers_len);
+    CHECK_ERROR(r_v, "failed to present framebuffer");
 }
 
 void DG_SleepMs(uint32_t ms)

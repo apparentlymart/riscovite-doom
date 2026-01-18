@@ -329,7 +329,7 @@ write_samples(uint64_t hnd, uint16_t *samples, uint64_t count) {
         "ecall\n"
         : [RET] "=r"(__ret), [ERR] "=r"(__err)
         : "r0"(_hnd), "r1"(_samples), "r"(_count),
-            [FUNCNUM] "n"(SYS_WRITE_SAMPLES(1))
+            [FUNCNUM] "n"(SYS_WRITE_SAMPLES(0))
         : "a7", "memory");
     return ((struct riscovite_result_void){__ret, __err});
 }
